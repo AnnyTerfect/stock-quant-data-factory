@@ -9,6 +9,7 @@ import pandas as pd
 from data_factory.processing import ConversionConfig, convert_dataset
 from data_factory.quality import (
     CheckStatus,
+    DataScope,
     QualityIssue,
     QualityReport,
     run_checks,
@@ -31,7 +32,7 @@ class PublicApiTests(unittest.TestCase):
                 )
             )
 
-            self.assertEqual(result.regular_counts["table"], 1)
+            self.assertEqual(result.regular.table, 1)
             self.assertTrue((root / "output/table.parquet").exists())
 
     def test_dry_run_does_not_read_or_write_data(self) -> None:
@@ -53,9 +54,26 @@ class PublicApiTests(unittest.TestCase):
             )
 
             self.assertTrue(result.dry_run)
-            self.assertEqual(result.regular_counts["planned"], 1)
+            self.assertEqual(result.regular.planned, 1)
             self.assertEqual(result.minute_days, 1)
             self.assertFalse(output.exists())
+
+    def test_passthrough_copy_reports_copied_and_skipped(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "input"
+            source.mkdir()
+            (source / "notes.txt").write_text("hello", encoding="utf-8")
+            output = root / "output"
+
+            config = ConversionConfig(
+                input_root=source, output_root=output, part="regular", copy_other=True
+            )
+            first = convert_dataset(config)
+            second = convert_dataset(config)
+
+            self.assertEqual((first.copied.copied, first.copied.skipped), (1, 0))
+            self.assertEqual((second.copied.copied, second.copied.skipped), (0, 1))
 
     def test_quality_contract_has_derived_status(self) -> None:
         passing = QualityReport("passing")
@@ -69,6 +87,7 @@ class PublicApiTests(unittest.TestCase):
     def test_run_checks_uses_common_interface(self) -> None:
         class ExampleCheck:
             name = "example"
+            scope = DataScope.OUTPUT
 
             def run(self) -> QualityReport:
                 return QualityReport(self.name, {"rows": 3})

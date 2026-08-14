@@ -7,6 +7,8 @@ from pathlib import Path
 import pandas as pd
 
 from data_factory.processing import (
+    ConversionConfig,
+    RegularCounts,
     convert_minute_bars,
     convert_regular_pickles,
     normalize_daily_matrix,
@@ -27,6 +29,12 @@ class ConvertDataTests(unittest.TestCase):
         self.assertEqual(result.columns.name, "stock_code")
         self.assertEqual(result.index.name, "datetime")
         self.assertEqual(result.index[0], pd.Timestamp("2026-01-02"))
+
+    def test_daily_matrix_left_alone_without_symbol_columns(self) -> None:
+        frame = pd.DataFrame([[1.0]], index=pd.Index([20260102]), columns=["value"])
+        result, changed = normalize_daily_matrix(frame)
+        self.assertFalse(changed)
+        self.assertIs(result, frame)
 
     def test_requested_path_renames(self) -> None:
         self.assertEqual(
@@ -77,7 +85,8 @@ class ConvertDataTests(unittest.TestCase):
             minute.to_pickle(minute_root / "kline_day_20260102.pkl")
 
             output_root = root / "data-out"
-            self.assertEqual(convert_minute_bars(input_root, output_root), 1)
+            config = ConversionConfig(input_root=input_root, output_root=output_root)
+            self.assertEqual(convert_minute_bars(config), 1)
             bar_root = output_root / "full/market/bars/1m"
             opened = pd.read_parquet(bar_root / "open.parquet")
             volume = pd.read_parquet(bar_root / "volume.parquet")
@@ -101,8 +110,10 @@ class ConvertDataTests(unittest.TestCase):
             )
 
             output_root = root / "data-out"
-            counts = convert_regular_pickles(input_root, output_root)
-            self.assertEqual(counts, {"daily-wide": 0, "table": 0, "skipped": 0})
+            counts = convert_regular_pickles(
+                ConversionConfig(input_root=input_root, output_root=output_root)
+            )
+            self.assertEqual(counts, RegularCounts())
             self.assertFalse((output_root / "market/bars/1m").exists())
 
 

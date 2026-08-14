@@ -1,24 +1,23 @@
-"""Public data-processing API.
+"""Pickle-to-parquet conversion of the raw market dataset."""
 
-Each capability lives in its own subpackage (currently only ``conversion``);
-callers should import from here rather than from implementation modules.
-"""
-
-from data_factory.core.layout import target_relative_path
-from data_factory.processing.conversion import (
+from data_factory.processing.conversion.minute import (
+    convert_minute_bars,
+    prepare_minute_day,
+)
+from data_factory.processing.conversion.models import (
     ConversionConfig,
     ConversionPart,
     ConversionResult,
     CopyCounts,
     ObjectKind,
     RegularCounts,
-    convert_dataset,
-    convert_minute_bars,
+)
+from data_factory.processing.conversion.normalization import normalize_daily_matrix
+from data_factory.processing.conversion.regular import (
     convert_regular_pickles,
     copy_other_files,
-    normalize_daily_matrix,
-    prepare_minute_day,
 )
+from data_factory.processing.conversion.service import convert_dataset
 
 __all__ = [
     "ConversionConfig",
@@ -33,5 +32,4 @@ __all__ = [
     "copy_other_files",
     "normalize_daily_matrix",
     "prepare_minute_day",
-    "target_relative_path",
 ]

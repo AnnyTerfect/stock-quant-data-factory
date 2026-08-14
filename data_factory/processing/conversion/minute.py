@@ -10,32 +10,21 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from data_factory.processing.constants import MINUTE_FIELDS, PRICE_FIELDS
-from data_factory.processing.normalization import normalize_daily_matrix
-from data_factory.processing.paths import (
-    MINUTE_FILE_RE,
+from data_factory.core.fields import MINUTE_FIELDS, PRICE_FIELDS
+from data_factory.core.layout import (
+    adjust_factor_file,
+    minute_file_date,
     minute_files,
     minute_relative_dir,
 )
+from data_factory.processing.conversion.models import ConversionConfig
+from data_factory.processing.conversion.normalization import normalize_daily_matrix
 
 LOG = logging.getLogger(__name__)
 
 
-def _factor_source(input_root: Path) -> Path:
-    candidates = (
-        input_root / "market/adjustment/adjfactor.pkl",
-        input_root / "market/prices/adjfactor.pkl",
-        input_root / "full/market/prices/adjfactor.pkl",
-        input_root / "full/market/adjustment/adjfactor.pkl",
-    )
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError("找不到日频复权因子 adjfactor.pkl")
-
-
 def load_adjustment_factors(input_root: Path) -> pd.DataFrame:
-    source = _factor_source(input_root)
+    source = adjust_factor_file(input_root)
     raw = pd.read_pickle(source)
     if not isinstance(raw, pd.DataFrame):
         raise TypeError(f"{source} 不是 DataFrame")
@@ -77,8 +66,8 @@ def prepare_minute_day(
             f"{source} 应只包含一个日期，实际为 {unique_dates[:10].tolist()}"
         )
     trade_date = int(unique_dates[0])
-    filename_match = MINUTE_FILE_RE.fullmatch(source.name)
-    if filename_match and trade_date != int(filename_match.group(1)):
+    file_date = minute_file_date(source)
+    if file_date is not None and trade_date != file_date:
         raise ValueError(f"{source} 的文件名日期与数据日期 {trade_date} 不一致")
     if trade_date not in factors.index:
         raise KeyError(f"复权因子中没有交易日 {trade_date}")
@@ -108,32 +97,27 @@ def prepare_minute_day(
     return result
 
 
-def convert_minute_bars(
-    input_root: Path,
-    output_root: Path,
-    overwrite: bool = False,
-    dry_run: bool = False,
-) -> int:
+def convert_minute_bars(config: ConversionConfig) -> int:
     """Stream daily long minute bars into six complete wide parquet files."""
-    minute_relative = minute_relative_dir(input_root)
-    sources = minute_files(input_root / minute_relative)
+    minute_relative = minute_relative_dir(config.input_root)
+    sources = minute_files(config.input_root / minute_relative)
     if not sources:
-        LOG.warning("没有找到 1m bars: %s", input_root / minute_relative)
+        LOG.warning("没有找到 1m bars: %s", config.input_root / minute_relative)
         return 0
 
-    target_root = output_root / minute_relative
+    target_root = config.output_root / minute_relative
     targets = {field: target_root / f"{field}.parquet" for field in MINUTE_FIELDS}
     existing = [path for path in targets.values() if path.exists()]
-    if dry_run:
+    if config.dry_run:
         LOG.info("[dry-run] 分钟源文件: %d 个交易日", len(sources))
         for field, target in targets.items():
             LOG.info("[dry-run] %s -> %s", field, target)
-        if existing and not overwrite:
+        if existing and not config.overwrite:
             LOG.warning("[dry-run] 实际执行会因目标已存在而停止: %s", existing[0])
         return len(sources)
-    if existing and not overwrite:
+    if existing and not config.overwrite:
         raise FileExistsError(f"分钟输出已存在（使用 --overwrite 覆盖）: {existing[0]}")
-    factors = load_adjustment_factors(input_root)
+    factors = load_adjustment_factors(config.input_root)
     stock_codes = pd.Index(factors.columns, dtype="int64", name="stock_code")
     target_root.mkdir(parents=True, exist_ok=True)
     temporaries = {

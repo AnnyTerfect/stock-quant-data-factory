@@ -1,12 +1,22 @@
-"""Public request and result models for conversion jobs."""
+"""Request and result models for conversion jobs."""
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
 ConversionPart = Literal["all", "regular", "minute"]
+
+
+class ObjectKind(StrEnum):
+    """What happened to one regular pickle."""
+
+    DAILY_WIDE = "daily-wide"
+    TABLE = "table"
+    SKIPPED = "skipped"
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +48,41 @@ class ConversionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RegularCounts:
+    """Outcome tally for the regular-pickle pass.
+
+    Every field is always present, so callers never have to guess which keys a
+    dry run happens to produce.
+    """
+
+    daily_wide: int = 0
+    table: int = 0
+    skipped: int = 0
+    planned: int = 0
+
+    @classmethod
+    def from_kinds(cls, kinds: Counter[ObjectKind], planned: int = 0) -> RegularCounts:
+        return cls(
+            daily_wide=kinds[ObjectKind.DAILY_WIDE],
+            table=kinds[ObjectKind.TABLE],
+            skipped=kinds[ObjectKind.SKIPPED],
+            planned=planned,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class CopyCounts:
+    """Outcome tally for the passthrough-copy pass."""
+
+    copied: int = 0
+    skipped: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ConversionResult:
     """Machine-readable summary returned by :func:`convert_dataset`."""
 
-    regular_counts: dict[str, int] = field(default_factory=dict)
+    regular: RegularCounts = field(default_factory=RegularCounts)
     minute_days: int = 0
-    copied_files: int = 0
+    copied: CopyCounts = field(default_factory=CopyCounts)
     dry_run: bool = False
