@@ -22,16 +22,14 @@ from data_factory.ingestion.archives import (
     member_basename,
     validate_archive_limits,
 )
-from data_factory.ingestion.catalog import build_catalog
-from data_factory.ingestion.errors import UpdateError
 from data_factory.ingestion.matrix import (
     compare_overlap,
     ensure_covers_local_dates,
     ensure_covers_local_stocks,
     load_matrix,
 )
-from data_factory.ingestion.models import Tolerance, UpdateStats
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.models import Tolerance, UpdateError, UpdateStats
+from data_factory.ingestion.storage import StagingArea, build_catalog
 
 LOG = logging.getLogger(__name__)
 

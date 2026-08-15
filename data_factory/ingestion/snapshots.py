@@ -12,7 +12,7 @@ import logging
 
 import pandas as pd
 
-from data_factory.ingestion.errors import UpdateError
+from data_factory.ingestion.models import UpdateError
 
 LOG = logging.getLogger(__name__)
 

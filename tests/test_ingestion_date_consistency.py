@@ -6,14 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_factory.ingestion.catalog import build_catalog
-from data_factory.ingestion.conventions import (
+from data_factory.ingestion.date_consistency import validate_recent_dates
+from data_factory.ingestion.models import (
     DATE_CONSISTENCY_DAYS,
     MAX_DATE_LAG_DAYS,
+    UpdateError,
 )
-from data_factory.ingestion.date_consistency import validate_recent_dates
-from data_factory.ingestion.errors import UpdateError
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.storage import StagingArea, build_catalog
 
 #: Where the ingestion modules log; the handler-free package logger is what the
 #: warning assertions listen on.

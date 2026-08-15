@@ -17,14 +17,14 @@ from pathlib import Path, PurePosixPath
 
 from data_factory.core.conventions import DATE_FORMAT
 from data_factory.core.layout import is_pickle
-from data_factory.ingestion.conventions import (
+from data_factory.ingestion.models import (
     MAX_ARCHIVE_MEMBER_BYTES,
     MAX_ARCHIVE_MEMBERS,
     MAX_ARCHIVE_TOTAL_BYTES,
     MAX_COMPRESSION_RATIO,
     MAX_INNER_ARCHIVE_BYTES,
+    UpdateError,
 )
-from data_factory.ingestion.errors import UpdateError
 
 LOG = logging.getLogger(__name__)
 

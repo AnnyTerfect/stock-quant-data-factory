@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from data_factory.ingestion.errors import UpdateError
+from data_factory.ingestion.models import UpdateError
 from data_factory.ingestion.snapshots import validate_snapshot
 
 

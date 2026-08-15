@@ -1,23 +1,117 @@
-"""Staging area: write everything aside first, replace the dataset only at the end.
+"""Everything in the flow that touches the disk: reading, indexing, writing.
 
-The point is that an update either lands completely or not at all. A file that
-fails halfway must not leave the dataset half new and half old — the hardest
-state to diagnose, because every file looks fine on its own and only the
-cross-file relations are broken.
+Three steps of one story, which is why they sit together:
+
+* :func:`load_pickle` / :func:`dump_pickle` — reading and writing single files;
+* :func:`build_catalog` — indexing the dataset by file name, because a delivery
+  organizes its files differently and the name is the only stable link;
+* :class:`StagingArea` — collecting the results and swapping them in at the end,
+  so an update either lands completely or not at all.
+
+Nothing here judges whether the data is right. Which files to index, and whether
+a difference deserves an error, is policy and lives with the callers.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import pickle
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO
 
-from data_factory.ingestion.pickle_io import dump_pickle
+import pandas as pd
+
+from data_factory.core.layout import is_pickle
+from data_factory.ingestion.models import UpdateError
 
 LOG = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Single files
+# ---------------------------------------------------------------------------
+
+
+def load_pickle(source: Path | BinaryIO) -> object:
+    """Read one pickled object from a path or an already open binary stream.
+
+    Streams are accepted so that zip members can be read without landing on disk.
+    """
+    try:
+        return pd.read_pickle(source)
+    except (
+        pickle.UnpicklingError,
+        EOFError,
+        AttributeError,
+        ImportError,
+        IndexError,
+    ) as error:
+        label = str(source) if isinstance(source, Path) else "压缩包成员"
+        raise UpdateError(f"{label}: pickle 无法反序列化: {error}") from error
+
+
+def dump_pickle(value: object, destination: Path) -> None:
+    """Write ``value`` to ``destination`` atomically.
+
+    A ``.writing`` sibling is filled first and then renamed, so an interrupted
+    write leaves the destination holding either the old or the new content —
+    never half a file.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(destination.name + ".writing")
+    pd.to_pickle(value, temporary)
+    os.replace(temporary, destination)
+
+
+# ---------------------------------------------------------------------------
+# Indexing the dataset
+# ---------------------------------------------------------------------------
+
+
+def build_catalog(root: Path, skip: Iterable[Path] = ()) -> dict[str, Path]:
+    """Index ``root`` recursively as file name to path.
+
+    A delivery organizes its files differently from the dataset
+    (``FundData/fund_asset.pkl`` against ``market/bars/1d/...``), so the only
+    stable correspondence between the two is the file name.
+
+    Duplicate names are a hard error: matching by name presupposes the name is
+    unique, and guessing which copy an increment belongs to would write data to
+    the wrong place.
+
+    Args:
+        root: Directory to index.
+        skip: Directories to leave out, for parts of the dataset this flow does
+            not update. Which ones those are is the caller's decision.
+    """
+    excluded = tuple(skip)
+    found: dict[str, list[Path]] = {}
+    for path in root.rglob("*"):
+        if not path.is_file() or not is_pickle(path):
+            continue
+        if any(path.is_relative_to(directory) for directory in excluded):
+            continue
+        found.setdefault(path.name, []).append(path)
+
+    collisions = {name: paths for name, paths in found.items() if len(paths) > 1}
+    if collisions:
+        details = "; ".join(
+            f"{name}: {', '.join(str(path) for path in paths)}"
+            for name, paths in collisions.items()
+        )
+        raise UpdateError(f"{root} 下存在同名文件，无法按文件名安全匹配: {details}")
+
+    LOG.info("已索引 %s 下的 %d 个数据文件", root, len(found))
+    return {name: paths[0] for name, paths in found.items()}
+
+
+# ---------------------------------------------------------------------------
+# Staging
+# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +123,11 @@ class StagingCheckpoint:
 
 class StagingArea:
     """Collect the files to be written and commit them in one pass.
+
+    An update either lands completely or not at all. A file that fails halfway
+    must not leave the dataset half new and half old — the hardest state to
+    diagnose, because every file looks fine on its own and only the cross-file
+    relations are broken.
 
     The staging directory has to live on the same filesystem as the dataset for
     ``os.replace`` to be atomic; across filesystems it degrades into copy plus

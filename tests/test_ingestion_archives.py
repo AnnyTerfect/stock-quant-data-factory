@@ -9,10 +9,9 @@ from pathlib import Path
 import pandas as pd
 
 from data_factory.ingestion.archives import iter_daily_archives
-from data_factory.ingestion.errors import UpdateError
-from data_factory.ingestion.models import Tolerance, UpdateStats
+from data_factory.ingestion.models import Tolerance, UpdateError, UpdateStats
 from data_factory.ingestion.sources.factor_database import _apply_daily_archive
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.storage import StagingArea
 
 
 def _empty_zip() -> bytes:

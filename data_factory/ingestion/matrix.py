@@ -22,13 +22,13 @@ from typing import BinaryIO
 import numpy as np
 import pandas as pd
 
-from data_factory.ingestion.conventions import (
+from data_factory.ingestion.models import (
     COLUMN_CHUNK_SIZE,
     MISMATCH_EXAMPLE_LIMIT,
+    Tolerance,
+    UpdateError,
 )
-from data_factory.ingestion.errors import UpdateError
-from data_factory.ingestion.models import Tolerance
-from data_factory.ingestion.pickle_io import load_pickle
+from data_factory.ingestion.storage import load_pickle
 
 LOG = logging.getLogger(__name__)
 

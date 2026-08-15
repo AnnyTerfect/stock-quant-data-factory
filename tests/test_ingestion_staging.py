@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from data_factory.ingestion import staging as staging_module
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion import storage as storage_module
+from data_factory.ingestion.storage import StagingArea
 
 
 class StagingTests(unittest.TestCase):
@@ -41,7 +41,7 @@ class StagingTests(unittest.TestCase):
             staging.stage_object(first, "new-a")
             staging.stage_object(second, "new-b")
 
-            real_replace = staging_module.os.replace
+            real_replace = storage_module.os.replace
             failed = False
 
             def fail_second_candidate(source: Path, destination: Path) -> None:
@@ -53,7 +53,7 @@ class StagingTests(unittest.TestCase):
                 real_replace(source, destination)
 
             with (
-                patch.object(staging_module.os, "replace", fail_second_candidate),
+                patch.object(storage_module.os, "replace", fail_second_candidate),
                 self.assertRaisesRegex(OSError, "simulated failure"),
             ):
                 staging.commit()

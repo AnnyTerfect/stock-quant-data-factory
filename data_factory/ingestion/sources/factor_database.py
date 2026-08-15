@@ -27,23 +27,34 @@ from data_factory.ingestion.archives import (
     iter_pickle_members,
     member_basename,
 )
-from data_factory.ingestion.conventions import FULL_SNAPSHOT_FILES
-from data_factory.ingestion.errors import UpdateError
 from data_factory.ingestion.matrix import (
     compare_overlap,
     has_date_axis,
     load_matrix,
     merge,
 )
-from data_factory.ingestion.models import Tolerance, UpdateStats
-from data_factory.ingestion.pickle_io import load_pickle
+from data_factory.ingestion.models import (
+    FULL_SNAPSHOT_FILES,
+    Tolerance,
+    UpdateError,
+    UpdateStats,
+)
 from data_factory.ingestion.snapshots import validate_snapshot
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.storage import StagingArea, load_pickle
 
 LOG = logging.getLogger(__name__)
 
 #: Failures that concern one file and must not abort the whole daily package.
-_RECOVERABLE = (UpdateError, pickle.UnpicklingError, EOFError, TypeError, ValueError)
+#: Narrower in scope but wider in type than ``service._RECOVERABLE_SOURCE``: a
+#: single member can fail to parse as any shape at all, while a broken archive
+#: has already been caught one level up.
+_RECOVERABLE_MEMBER = (
+    UpdateError,
+    pickle.UnpicklingError,
+    EOFError,
+    TypeError,
+    ValueError,
+)
 
 
 def update(
@@ -125,7 +136,7 @@ def _apply_daily_archive(
             if _apply_member(daily, member, name, target, staging, tolerance, stats):
                 applied = True
                 applied_count += 1
-        except _RECOVERABLE as error:
+        except _RECOVERABLE_MEMBER as error:
             # One file's failure must not take the daily package with it: the
             # rest goes on, and the error gate at the end decides about the
             # commit. TypeError and ValueError mostly come from pandas when

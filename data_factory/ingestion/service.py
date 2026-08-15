@@ -10,6 +10,11 @@ One update runs four steps, and the order is not negotiable:
 
 A file that fails validation does not stop the others, and the dataset keeps its
 original content until the confirmation.
+
+Step 3 is why the reporting helpers live here too: warnings and errors are
+captured while they happen but printed together, right before the prompt, since
+the answer is a judgement on that list and a list printed after the question
+would mean choosing blind.
 """
 
 from __future__ import annotations
@@ -22,27 +27,33 @@ from collections.abc import Callable
 from pathlib import Path
 
 from data_factory.core.layout import BARRA_RELATIVE_DIR, minute_relative_dir
-from data_factory.ingestion.catalog import build_catalog
-from data_factory.ingestion.conventions import (
+from data_factory.ingestion.date_consistency import validate_recent_dates
+from data_factory.ingestion.models import (
     BARRA_ARCHIVE_NAME,
     FACTOR_ARCHIVE_NAME,
-)
-from data_factory.ingestion.date_consistency import validate_recent_dates
-from data_factory.ingestion.errors import UpdateError
-from data_factory.ingestion.models import UpdateConfig, UpdateStats
-from data_factory.ingestion.report import (
-    PACKAGE_LOGGER,
-    IssueLogHandler,
-    log_issues,
-    log_summary,
+    UpdateConfig,
+    UpdateError,
+    UpdateStats,
 )
 from data_factory.ingestion.sources import barra, factor_database
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.storage import StagingArea, build_catalog
 
 LOG = logging.getLogger(__name__)
 
-#: Data problems that a single source can raise without taking the run down.
-_RECOVERABLE = (UpdateError, zipfile.BadZipFile, pickle.UnpicklingError, EOFError)
+#: Every ingestion module logs below this one, so a handler installed here sees
+#: the whole run. Spelled out rather than derived, so moving a module cannot
+#: silently narrow what gets collected.
+PACKAGE_LOGGER = logging.getLogger("data_factory.ingestion")
+
+#: Data problems a whole source can raise without taking the run down. Wider
+#: than the per-member tuple in ``sources.factor_database``: at this level a
+#: broken archive is one failed source, not a failed run.
+_RECOVERABLE_SOURCE = (
+    UpdateError,
+    zipfile.BadZipFile,
+    pickle.UnpicklingError,
+    EOFError,
+)
 
 
 def update_dataset(
@@ -115,7 +126,7 @@ def update_dataset(
 
             try:
                 validate_recent_dates(catalog, staging)
-            except _RECOVERABLE as error:
+            except _RECOVERABLE_SOURCE as error:
                 LOG.error("全局日期校验失败: %s", error)
 
             changed_files = len(staging)
@@ -162,7 +173,7 @@ def _run_source(
     counters_before = stats.counters()
     try:
         action()
-    except _RECOVERABLE as error:
+    except _RECOVERABLE_SOURCE as error:
         LOG.error("%s处理失败: %s", label, error)
     if stats.error_count > errors_before:
         staging.rollback(checkpoint)
@@ -184,3 +195,60 @@ def _confirm_merge(confirm: Callable[[str], str] | None) -> bool:
         if answer in {"n", "no", ""}:
             return False
         LOG.warning("请输入 y 或 n")
+
+
+class IssueLogHandler(logging.Handler):
+    """Collect the WARNING / ERROR records of one run for the final summary."""
+
+    def __init__(self, stats: UpdateStats) -> None:
+        super().__init__(level=logging.WARNING)
+        self.stats = stats
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno >= logging.ERROR:
+            level = "ERROR"
+        elif record.levelno >= logging.WARNING:
+            level = "WARNING"
+        else:
+            return
+        self.stats.issues.append((level, record.getMessage()))
+
+
+def log_issues(stats: UpdateStats) -> None:
+    """Print every warning and error collected, before asking for confirmation."""
+    LOG.info(
+        "问题汇总: WARNING %d 条, ERROR %d 条", stats.warning_count, stats.error_count
+    )
+    if not stats.issues:
+        LOG.info("未发现不一致、缺失或其他问题")
+        return
+    for number, (level, message) in enumerate(stats.issues, 1):
+        LOG.info("  %d. [%s] %s", number, level, message)
+
+
+def log_summary(
+    stats: UpdateStats, *, changed_files: int, written_files: int, dry_run: bool
+) -> None:
+    """Print the closing tally of one run."""
+    if dry_run:
+        suffix = "（dry-run，未落盘）"
+    elif stats.error_count:
+        suffix = "（校验失败，未落盘）"
+    elif not written_files and changed_files:
+        suffix = "（用户取消，未落盘）"
+    else:
+        suffix = ""
+    LOG.info(
+        "汇总: Barra 覆盖 %d 个（其中历史告警 %d 个）, 日增量包 %d 个, "
+        "因子合并 %d 次, 参考快照替换 %d 次, 无匹配跳过 %d 个, 实际写入 %d 个文件%s",
+        stats.barra_replaced,
+        stats.barra_history_warnings,
+        stats.daily_archives,
+        stats.factors_merged,
+        stats.snapshots_replaced,
+        len(stats.unmatched_names),
+        written_files,
+        suffix,
+    )
+    if stats.unmatched_names:
+        LOG.debug("被跳过的无匹配文件: %s", ", ".join(sorted(stats.unmatched_names)))

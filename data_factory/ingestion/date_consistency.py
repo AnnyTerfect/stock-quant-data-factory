@@ -34,15 +34,14 @@ from data_factory.core.conventions import (
     format_dates,
     to_datetime_index,
 )
-from data_factory.ingestion.conventions import (
+from data_factory.ingestion.models import (
     DATE_CONSISTENCY_DAYS,
     DATE_REFERENCE_FILE,
     MAX_DATE_LAG_DAYS,
     NON_DATE_FILES,
+    UpdateError,
 )
-from data_factory.ingestion.errors import UpdateError
-from data_factory.ingestion.pickle_io import load_pickle
-from data_factory.ingestion.staging import StagingArea
+from data_factory.ingestion.storage import StagingArea, load_pickle
 
 LOG = logging.getLogger(__name__)
 

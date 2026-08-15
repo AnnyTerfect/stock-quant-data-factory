@@ -5,14 +5,13 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from data_factory.ingestion.errors import UpdateError
 from data_factory.ingestion.matrix import (
     compare_overlap,
     ensure_covers_local_stocks,
     has_date_axis,
     merge,
 )
-from data_factory.ingestion.models import Tolerance
+from data_factory.ingestion.models import Tolerance, UpdateError
 
 
 def _frame(values: object, dates: list[int], stocks: list[str], dtype: object = None):
