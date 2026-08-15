@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from data_factory.cli.main import build_parser
-from data_factory.cli.render import render_report
+from data_factory.cli.quality import render_report
 from data_factory.core.layout import FULL_ROOT, INCREMENTAL_ROOT, delivery_dir
 from data_factory.quality import registry
 from data_factory.quality.models import CheckStatus, QualityIssue, QualityReport
