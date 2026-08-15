@@ -122,6 +122,29 @@ class ConvertDataTests(unittest.TestCase):
             self.assertEqual(counts, RegularCounts())
             self.assertFalse((output_root / "market/bars/1m").exists())
 
+    def test_regular_conversion_accepts_every_pickle_suffix(self) -> None:
+        """Conversion has to recognize exactly what ingestion is willing to index.
+
+        ``build_catalog`` accepts ``.pkl`` and ``.pickle`` case-insensitively, so
+        a file ingested under any of those spellings must convert to parquet
+        rather than fall through to the verbatim copy.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            reference_root = input_root / "reference"
+            reference_root.mkdir(parents=True)
+            for name in ("lower.pkl", "other.pickle", "upper.PKL"):
+                pd.DataFrame({"value": [1]}).to_pickle(reference_root / name)
+
+            output_root = root / "data-out"
+            counts = convert_regular_pickles(
+                ConversionConfig(input_root=input_root, output_root=output_root)
+            )
+            self.assertEqual(counts, RegularCounts(table=3))
+            for stem in ("lower", "other", "upper"):
+                self.assertTrue((output_root / f"reference/{stem}.parquet").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

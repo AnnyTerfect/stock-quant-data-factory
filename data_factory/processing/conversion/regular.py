@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_factory.core.layout import minute_relative_dir, target_relative_path
+from data_factory.core.layout import (
+    is_pickle,
+    minute_relative_dir,
+    target_relative_path,
+)
 from data_factory.processing.conversion.models import (
     ConversionConfig,
     CopyCounts,
@@ -48,7 +52,9 @@ def convert_regular_pickles(config: ConversionConfig) -> RegularCounts:
     kinds: Counter[ObjectKind] = Counter()
     planned = 0
     minute_root = config.input_root / minute_relative_dir(config.input_root)
-    for source in sorted(config.input_root.rglob("*.pkl")):
+    for source in sorted(config.input_root.rglob("*")):
+        if not source.is_file() or not is_pickle(source):
+            continue
         if source.is_relative_to(minute_root):
             continue
         relative = source.relative_to(config.input_root)
@@ -76,7 +82,7 @@ def copy_other_files(config: ConversionConfig) -> CopyCounts:
     for source in sorted(
         path for path in config.input_root.rglob("*") if path.is_file()
     ):
-        if source.suffix == ".pkl" or source.is_relative_to(minute_root):
+        if is_pickle(source) or source.is_relative_to(minute_root):
             continue
         relative = source.relative_to(config.input_root)
         target = config.output_root / target_relative_path(relative)

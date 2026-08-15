@@ -12,7 +12,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
-from data_factory.ingestion.conventions import PICKLE_SUFFIXES
+from data_factory.core.layout import is_pickle
 from data_factory.ingestion.errors import UpdateError
 
 LOG = logging.getLogger(__name__)
@@ -33,7 +33,7 @@ def build_catalog(root: Path, skip: Iterable[Path] = ()) -> dict[str, Path]:
     excluded = tuple(skip)
     found: dict[str, list[Path]] = {}
     for path in root.rglob("*"):
-        if not path.is_file() or path.suffix.lower() not in PICKLE_SUFFIXES:
+        if not path.is_file() or not is_pickle(path):
             continue
         if any(path.is_relative_to(directory) for directory in excluded):
             continue

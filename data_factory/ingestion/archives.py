@@ -15,13 +15,13 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from data_factory.core.layout import is_pickle
 from data_factory.ingestion.conventions import (
     MAX_ARCHIVE_MEMBER_BYTES,
     MAX_ARCHIVE_MEMBERS,
     MAX_ARCHIVE_TOTAL_BYTES,
     MAX_COMPRESSION_RATIO,
     MAX_INNER_ARCHIVE_BYTES,
-    PICKLE_SUFFIXES,
 )
 from data_factory.ingestion.errors import UpdateError
 
@@ -50,7 +50,7 @@ def iter_pickle_members(archive: zipfile.ZipFile) -> Iterator[zipfile.ZipInfo]:
     for member in archive.infolist():
         if member.is_dir():
             continue
-        if PurePosixPath(member.filename).suffix.lower() in PICKLE_SUFFIXES:
+        if is_pickle(PurePosixPath(member.filename)):
             yield member
 
 

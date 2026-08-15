@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from pathlib import Path
+from pathlib import Path, PurePath
 
 LOG = logging.getLogger(__name__)
 
@@ -24,6 +24,12 @@ INCREMENTAL_ROOT = DATA_ROOT / "incremental"
 
 #: Barra factor matrices, relative to the dataset root.
 BARRA_RELATIVE_DIR = Path("barra")
+
+#: Suffixes that make a file a pickled data file. Every subsystem has to agree:
+#: ingestion decides by this what to index and merge, and conversion decides by
+#: this what to turn into parquet rather than copy through untouched. Compared
+#: case-insensitively, via :func:`is_pickle`.
+PICKLE_SUFFIXES = (".pkl", ".pickle")
 
 #: Upstream reference files that every subsystem has to name identically.
 #: Their canonical output names live in ``_RENAMED_STEMS`` below.
@@ -118,12 +124,21 @@ def daily_adjusted_price_file(field: str) -> str:
     return f"adj_{field}.pkl"
 
 
+def is_pickle(path: PurePath) -> bool:
+    """Whether ``path`` names a pickled data file, ignoring suffix case.
+
+    Takes a :class:`PurePath` so that zip members, which are addressed as
+    ``PurePosixPath`` and never touch the filesystem, can use the same rule.
+    """
+    return path.suffix.lower() in PICKLE_SUFFIXES
+
+
 def target_relative_path(relative: Path) -> Path:
     """Map a source-relative path to its canonical output path."""
     renamed = PATH_RENAMES.get(relative.as_posix())
     if renamed is not None:
         return Path(renamed)
-    return relative.with_suffix(".parquet") if relative.suffix == ".pkl" else relative
+    return relative.with_suffix(".parquet") if is_pickle(relative) else relative
 
 
 def minute_relative_dir(input_root: Path) -> Path:

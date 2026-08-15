@@ -28,9 +28,6 @@ FACTOR_ARCHIVE_NAME = "factorDatabase_incre_pkl.zip"
 # Local dataset conventions
 # ---------------------------------------------------------------------------
 
-#: Suffixes treated as data files when indexing the dataset by file name.
-PICKLE_SUFFIXES = (".pkl", ".pickle")
-
 #: Files delivered as a full snapshot rather than an increment: no date merge,
 #: they replace the local copy once the structural checks pass.
 FULL_SNAPSHOT_FILES = frozenset(
