@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from data_factory.core.layout import FULL_ROOT
 from data_factory.quality.checks.price_consistency.loaders import (
     load_daily_bundle,
     load_minute_day,
@@ -35,7 +36,7 @@ class PriceConsistencyCheck:
     """Compare minute bars aggregated to a day against the daily matrices."""
 
     trade_date: int
-    input_root: Path = Path("data")
+    input_root: Path = FULL_ROOT
     raw_tolerance: float = 1e-8
     show: int = 20
 
@@ -107,7 +108,7 @@ SPEC = CheckSpec(
     factory=PriceConsistencyCheck,
     options=(
         CheckOption("trade_date", int, 20260722, "交易日 YYYYMMDD", flag="--date"),
-        CheckOption("input_root", Path, Path("data"), "源数据根目录", flag="--input"),
+        CheckOption("input_root", Path, FULL_ROOT, "源数据根目录", flag="--input"),
         CheckOption("raw_tolerance", float, 1e-8, "未复权价格的比较容差"),
         CheckOption("show", int, 20, "最多显示多少条不匹配记录"),
     ),

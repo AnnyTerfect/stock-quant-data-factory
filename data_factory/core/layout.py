@@ -12,6 +12,26 @@ from pathlib import Path
 
 LOG = logging.getLogger(__name__)
 
+#: Root of the local dataset tree. The three subtrees below never overlap, so a
+#: command can read one and write another without any risk of self-ingestion.
+DATA_ROOT = Path("data")
+#: Full local history: what conversion reads and what ingestion updates in place.
+FULL_ROOT = DATA_ROOT / "full"
+#: Canonical parquet output produced by :mod:`data_factory.processing`.
+OUTPUT_ROOT = DATA_ROOT / "out"
+#: One subdirectory per incremental delivery, named after its delivery date.
+INCREMENTAL_ROOT = DATA_ROOT / "incremental"
+
+#: Barra factor matrices, relative to the dataset root.
+BARRA_RELATIVE_DIR = Path("barra")
+
+#: Upstream reference files that every subsystem has to name identically.
+#: Their canonical output names live in ``_RENAMED_STEMS`` below.
+TRADING_CALENDAR_FILE = "trd_cal.pkl"
+STOCK_CODE_FILE = "stkcode.pkl"
+STOCK_INFO_FILE = "stk_info.pkl"
+INDUSTRY_CODE_FILE = "ind_code_CI.pkl"
+
 #: Layouts that have carried the 1-minute bars, most recent first.
 MINUTE_RELATIVE_DIRS = ("market/bars/1m", "full/market/bars/1m")
 #: Layouts that have carried the daily matrices, most recent first.
@@ -69,6 +89,17 @@ def _build_path_renames() -> dict[str, str]:
 
 
 PATH_RENAMES = _build_path_renames()
+
+
+def delivery_dir(delivery: Path | str) -> Path:
+    """Locate one incremental delivery.
+
+    A bare name (``2026-08-08``) is resolved under :data:`INCREMENTAL_ROOT`;
+    anything carrying a directory part is taken as given, so a delivery staged
+    outside the dataset tree stays reachable.
+    """
+    delivery = Path(delivery)
+    return INCREMENTAL_ROOT / delivery if delivery.parent == Path() else delivery
 
 
 def minute_file_name(trade_date: int) -> str:

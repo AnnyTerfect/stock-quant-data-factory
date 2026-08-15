@@ -64,8 +64,8 @@ class ConvertDataTests(unittest.TestCase):
             factor_root.mkdir(parents=True)
 
             factors = pd.DataFrame(
-                [[2.0, 3.0]],
-                index=[20260102],
+                [[2.0, 3.0], [2.5, 3.5]],
+                index=[20260102, 20260105],
                 columns=["000001.SZ", "600000.SH"],
             )
             factors.to_pickle(factor_root / "adjfactor.pkl")
@@ -83,10 +83,13 @@ class ConvertDataTests(unittest.TestCase):
                 }
             )
             minute.to_pickle(minute_root / "kline_day_20260102.pkl")
+            later = minute.iloc[:2].copy()
+            later["date"] = 20260105
+            later.to_pickle(minute_root / "kline_day_20260105.pkl")
 
             output_root = root / "data-out"
             config = ConversionConfig(input_root=input_root, output_root=output_root)
-            self.assertEqual(convert_minute_bars(config), 1)
+            self.assertEqual(convert_minute_bars(config), 2)
             bar_root = output_root / "full/market/bars/1m"
             opened = pd.read_parquet(bar_root / "open.parquet")
             volume = pd.read_parquet(bar_root / "volume.parquet")
@@ -95,8 +98,11 @@ class ConvertDataTests(unittest.TestCase):
             self.assertEqual(opened.index.name, "datetime")
             self.assertIn(pd.Timestamp("2026-01-02 10:00"), opened.index)
             self.assertIn(pd.Timestamp("2026-01-02 15:00"), opened.index)
+            self.assertTrue(opened.index.is_monotonic_increasing)
+            self.assertIn(pd.Timestamp("2026-01-05 10:00"), opened.index)
             self.assertEqual(opened.loc["2026-01-02 10:00", 1], 20.0)
             self.assertEqual(opened.loc["2026-01-02 10:00", 600000], 60.0)
+            self.assertEqual(opened.loc["2026-01-05 10:00", 1], 25.0)
             self.assertEqual(volume.loc["2026-01-02 10:00", 1], 100.0)
 
     def test_regular_conversion_skips_current_layout_minute_bars(self) -> None:

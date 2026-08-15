@@ -5,21 +5,48 @@ from pathlib import Path
 
 from data_factory.cli.main import build_parser
 from data_factory.cli.render import render_report
+from data_factory.core.layout import FULL_ROOT, INCREMENTAL_ROOT, delivery_dir
 from data_factory.quality import registry
 from data_factory.quality.models import CheckStatus, QualityIssue, QualityReport
 
 
 class CliTests(unittest.TestCase):
     def test_convert_subcommand(self) -> None:
-        args = build_parser().parse_args(["convert", "--part", "regular", "--dry-run"])
+        args = build_parser().parse_args(
+            ["convert", "--part", "regular", "--dry-run", "--workers", "3"]
+        )
         self.assertEqual(args.command, "convert")
         self.assertEqual(args.part, "regular")
         self.assertTrue(args.dry_run)
+        self.assertEqual(args.workers, 3)
+
+    def test_update_subcommand(self) -> None:
+        args = build_parser().parse_args(
+            ["update", "--delivery", "2026-08-08", "--trusted-pickle", "--dry-run"]
+        )
+        self.assertEqual(args.command, "update")
+        self.assertEqual(args.delivery, Path("2026-08-08"))
+        self.assertEqual(args.data, FULL_ROOT)
+        self.assertTrue(args.trusted_pickle)
+        self.assertTrue(args.dry_run)
+
+    def test_update_requires_a_delivery(self) -> None:
+        """默认更新哪批交付是猜不得的，只有数据目录有约定俗成的位置。"""
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["update", "--trusted-pickle"])
+
+    def test_bare_delivery_name_resolves_under_the_incremental_root(self) -> None:
+        self.assertEqual(delivery_dir("2026-08-08"), INCREMENTAL_ROOT / "2026-08-08")
+        self.assertEqual(
+            delivery_dir(Path("other/2026-08-08")), Path("other/2026-08-08")
+        )
 
     def test_every_command_accepts_a_log_directory(self) -> None:
         parser = build_parser()
+        update = parser.parse_args(["update", "--delivery", "d", "--log-dir", "a"])
         convert = parser.parse_args(["convert", "--log-dir", "a"])
         check = parser.parse_args(["check", "price-consistency", "--log-dir", "b"])
+        self.assertEqual(update.log_dir, Path("a"))
         self.assertEqual(convert.log_dir, Path("a"))
         self.assertEqual(check.log_dir, Path("b"))
 

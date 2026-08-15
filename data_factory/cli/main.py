@@ -7,7 +7,7 @@ import logging
 from collections.abc import Iterable
 from pathlib import Path
 
-from data_factory.cli import convert, quality
+from data_factory.cli import convert, quality, update
 from data_factory.core.logging import configure_logging
 
 LOG = logging.getLogger(__name__)
@@ -23,15 +23,24 @@ def _logging_parser() -> argparse.ArgumentParser:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="data-factory",
-        description="数据处理与数据质量检测工具",
+        description="数据更新、处理与数据质量检测工具",
     )
     common = _logging_parser()
     commands = parser.add_subparsers(
         dest="command",
         title="commands",
-        metavar="{convert,check}",
+        metavar="{update,convert,check}",
         required=True,
     )
+
+    update_parser = commands.add_parser(
+        "update",
+        help="用一批增量交付更新数据",
+        description=update.__doc__,
+        parents=[common],
+    )
+    update.add_arguments(update_parser)
+    update_parser.set_defaults(handler=update.run)
 
     convert_parser = commands.add_parser(
         "convert",
@@ -52,6 +61,25 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Iterable[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    log_path = configure_logging(args.log_dir, args.command)
-    LOG.info("日志文件: %s", log_path)
+    log_path = configure_logging(
+        args.log_dir,
+        args.command,
+        # Only the update command declares these; the others keep the defaults.
+        verbose=getattr(args, "verbose", False),
+        tag="dryrun" if getattr(args, "dry_run", False) else None,
+    )
+    if log_path is not None:
+        LOG.info("日志文件: %s", log_path)
+    # The arguments go into the log too: afterwards, "how was this run invoked"
+    # has to be answerable from the log itself rather than from memory.
+    LOG.info("命令参数: %s", _settings(args))
     args.handler(args)
+
+
+def _settings(args: argparse.Namespace) -> dict[str, object]:
+    """The parsed arguments, without the objects the parser attached itself."""
+    return {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"handler", "spec"}
+    }

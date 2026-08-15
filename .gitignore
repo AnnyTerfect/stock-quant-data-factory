@@ -9,9 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-# Data
+# Data: full history, deliveries and converted output all live under data/
 /data
-/data-out
 
 # Log
 /logs
