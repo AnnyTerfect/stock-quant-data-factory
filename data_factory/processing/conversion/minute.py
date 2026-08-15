@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+from collections import deque
+from collections.abc import Iterator
+from concurrent.futures import Future, ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
 
 import pandas as pd
@@ -21,6 +25,77 @@ from data_factory.processing.conversion.models import ConversionConfig
 from data_factory.processing.conversion.normalization import normalize_daily_matrix
 
 LOG = logging.getLogger(__name__)
+
+
+def _prepare_minute_day_worker(
+    source: Path, day_factors: pd.DataFrame, stock_codes: pd.Index
+) -> dict[str, pd.DataFrame]:
+    return prepare_minute_day(source, day_factors, stock_codes)
+
+
+def _submit_minute_day(
+    executor: ProcessPoolExecutor,
+    source: Path,
+    factors: pd.DataFrame,
+    stock_codes: pd.Index,
+) -> Future[dict[str, pd.DataFrame]]:
+    trade_date = minute_file_date(source)
+    if trade_date not in factors.index:
+        raise KeyError(f"复权因子中没有交易日 {trade_date}")
+    # Passing one row avoids copying the full historical factor matrix into
+    # every spawned process.
+    return executor.submit(
+        _prepare_minute_day_worker,
+        source,
+        factors.loc[[trade_date]],
+        stock_codes,
+    )
+
+
+def _prepared_days(
+    sources: list[Path],
+    factors: pd.DataFrame,
+    stock_codes: pd.Index,
+    workers: int,
+) -> Iterator[tuple[Path, dict[str, pd.DataFrame]]]:
+    """Prepare days concurrently while yielding them in chronological order.
+
+    The bounded queue prevents completed wide frames from consuming memory for
+    the entire history when an early day is slower than later ones.
+    """
+    if workers == 1:
+        for source in sources:
+            yield source, prepare_minute_day(source, factors, stock_codes)
+        return
+
+    executor = ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=get_context("spawn"),
+    )
+    pending: deque[tuple[Path, Future[dict[str, pd.DataFrame]]]] = deque()
+    remaining = iter(sources)
+    try:
+        for source in remaining:
+            future = _submit_minute_day(executor, source, factors, stock_codes)
+            pending.append((source, future))
+            if len(pending) >= workers * 2:
+                break
+
+        while pending:
+            source, future = pending.popleft()
+            yield source, future.result()
+            try:
+                next_source = next(remaining)
+            except StopIteration:
+                continue
+            pending.append(
+                (
+                    next_source,
+                    _submit_minute_day(executor, next_source, factors, stock_codes),
+                )
+            )
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def load_adjustment_factors(input_root: Path) -> pd.DataFrame:
@@ -119,6 +194,13 @@ def convert_minute_bars(config: ConversionConfig) -> int:
         raise FileExistsError(f"分钟输出已存在（使用 --overwrite 覆盖）: {existing[0]}")
     factors = load_adjustment_factors(config.input_root)
     stock_codes = pd.Index(factors.columns, dtype="int64", name="stock_code")
+    if config.workers is not None and config.workers < 1:
+        raise ValueError("workers 必须大于 0")
+    workers = min(
+        len(sources),
+        config.workers or max(1, (os.process_cpu_count() or 1) // 2),
+    )
+    LOG.info("1m bars: 使用 %d 个转换进程", workers)
     target_root.mkdir(parents=True, exist_ok=True)
     temporaries = {
         field: path.with_name(path.name + ".tmp") for field, path in targets.items()
@@ -126,10 +208,9 @@ def convert_minute_bars(config: ConversionConfig) -> int:
     writers: dict[str, pq.ParquetWriter] = {}
     completed = False
     try:
-        for number, source in enumerate(sources, start=1):
-            for field, frame in prepare_minute_day(
-                source, factors, stock_codes
-            ).items():
+        prepared = _prepared_days(sources, factors, stock_codes, workers)
+        for number, (source, frames) in enumerate(prepared, start=1):
+            for field, frame in frames.items():
                 table = pa.Table.from_pandas(frame, preserve_index=True)
                 if field not in writers:
                     writers[field] = pq.ParquetWriter(

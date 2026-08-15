@@ -8,6 +8,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Literal
 
+from data_factory.core.layout import FULL_ROOT, OUTPUT_ROOT
+
 ConversionPart = Literal["all", "regular", "minute"]
 
 
@@ -23,12 +25,13 @@ class ObjectKind(StrEnum):
 class ConversionConfig:
     """Configuration for one dataset conversion run."""
 
-    input_root: Path = Path("data")
-    output_root: Path = Path("data-out")
+    input_root: Path = FULL_ROOT
+    output_root: Path = OUTPUT_ROOT
     part: ConversionPart = "all"
     overwrite: bool = False
     copy_other: bool = False
     dry_run: bool = False
+    workers: int | None = None
 
     def validated(self) -> ConversionConfig:
         input_root = self.input_root.resolve()
@@ -37,6 +40,8 @@ class ConversionConfig:
             raise NotADirectoryError(input_root)
         if input_root == output_root:
             raise ValueError("输入与输出目录不能相同")
+        if self.workers is not None and self.workers < 1:
+            raise ValueError("workers 必须大于 0")
         return ConversionConfig(
             input_root=input_root,
             output_root=output_root,
@@ -44,6 +49,7 @@ class ConversionConfig:
             overwrite=self.overwrite,
             copy_other=self.copy_other,
             dry_run=self.dry_run,
+            workers=self.workers,
         )
 
 
