@@ -12,6 +12,7 @@ import logging
 
 import pandas as pd
 
+from data_factory.core.layout import STOCK_INFO_FILE
 from data_factory.ingestion.models import UpdateError
 
 LOG = logging.getLogger(__name__)
@@ -99,12 +100,79 @@ def _validate_frame(local: pd.DataFrame, incoming: pd.DataFrame, label: str) -> 
 
     missing = local_keys.difference(incoming_keys)
     added = incoming_keys.difference(local_keys)
+    code_changes: list[tuple[object, object, object]] = []
+    if label == STOCK_INFO_FILE and "compcode" in incoming.columns:
+        missing, code_changes = _separate_stock_code_changes(
+            local, incoming, missing, added
+        )
+        if code_changes:
+            examples = [
+                f"{old_code} -> {new_code} (compcode={compcode})"
+                for old_code, new_code, compcode in code_changes[:5]
+            ]
+            LOG.warning(
+                "%s: 检测到 %d 个可能的证券代码变更，将按代码变更处理，例如 %s",
+                label,
+                len(code_changes),
+                examples,
+            )
+    changed_new_codes = pd.Index(change[1] for change in code_changes)
+    unmatched_added = added.difference(changed_new_codes)
     if len(missing):
-        raise UpdateError(f"{label}: {_shrink_reason(missing, added, key_name)}")
+        raise UpdateError(
+            f"{label}: {_shrink_reason(missing, unmatched_added, key_name)}"
+        )
 
     LOG.info(
-        "%s: %d 行 → %d 行（新增 %d 行）", label, len(local), len(incoming), len(added)
+        "%s: %d 行 → %d 行（新增 %d 行，代码变更 %d 行）",
+        label,
+        len(local),
+        len(incoming),
+        len(unmatched_added),
+        len(code_changes),
     )
+
+
+def _separate_stock_code_changes(
+    local: pd.DataFrame,
+    incoming: pd.DataFrame,
+    missing: pd.Index,
+    added: pd.Index,
+) -> tuple[pd.Index, list[tuple[object, object, object]]]:
+    """Recognize conservative one-to-one stkcode replacements by compcode.
+
+    ``stk_info`` includes pre-listing and other provisional security codes.  A
+    vendor can replace one with the exchange code while keeping ``compcode`` as
+    the stable identity.  Only a one-to-one pairing among the removed and added
+    rows is accepted; ambiguous, null, or genuinely removed identities still
+    fail the snapshot validation.
+    """
+    if not len(missing) or not len(added):
+        return missing, []
+
+    removed = local.loc[local["stkcode"].isin(missing), ["stkcode", "compcode"]]
+    introduced = incoming.loc[
+        incoming["stkcode"].isin(added), ["stkcode", "compcode"]
+    ]
+    removed = removed.loc[removed["compcode"].notna()]
+    introduced = introduced.loc[introduced["compcode"].notna()]
+
+    removed_groups = removed.groupby("compcode", sort=False, dropna=False)
+    introduced_groups = introduced.groupby("compcode", sort=False, dropna=False)
+    changes: list[tuple[object, object, object]] = []
+    changed_old_codes: list[object] = []
+    for compcode, old_rows in removed_groups:
+        if len(old_rows) != 1 or compcode not in introduced_groups.groups:
+            continue
+        new_rows = introduced_groups.get_group(compcode)
+        if len(new_rows) != 1:
+            continue
+        old_code = old_rows.iloc[0]["stkcode"]
+        new_code = new_rows.iloc[0]["stkcode"]
+        changes.append((old_code, new_code, compcode))
+        changed_old_codes.append(old_code)
+
+    return missing.difference(pd.Index(changed_old_codes)), changes
 
 
 def _shrink_reason(missing: pd.Index, added: pd.Index, unit: str) -> str:

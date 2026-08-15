@@ -172,7 +172,9 @@ uv run data-factory check price-consistency --date 20260722
   暂存结果会撤销，并禁止提交。
 - `trd_cal.pkl`、`stkcode.pkl`、`stk_info.pkl` 是包内的全量参考快照，
   不做日期合并，结构校验（类型不变、字段及顺序不变、已有主键不得丢失、主键
-  不重复）通过后整体替换。
+  不重复）通过后整体替换。`stk_info.pkl` 的旧、新 `stkcode` 若能通过非空
+  `compcode` 一对一对应，则视为可能的证券代码变更：记录 `WARNING` 并允许替换；
+  无法这样确认的主键丢失仍记为 `ERROR`。
 - 行索引不像 8 位 `YYYYMMDD` 的文件（例如行号是 `0..570` 的 `ind_code_CI.pkl`）
   不会被当成日期矩阵合并，而是记 `WARNING` 后跳过。这类文件多半是新出现的参考
   表，应当补一条全量快照规则，而不是在行号上求交集把表改坏。

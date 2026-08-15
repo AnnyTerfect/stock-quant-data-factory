@@ -16,6 +16,43 @@ class SnapshotValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(UpdateError, "丢失了本地已有stkcode.*缺少 2 个"):
             validate_snapshot(local, incoming, "stk_info.pkl")
 
+    def test_frame_allows_one_to_one_stock_code_change_by_compcode(self) -> None:
+        local = pd.DataFrame(
+            {
+                "stkcode": ["A25026.SZ", "000001.SZ"],
+                "stkname": ["贝特利", "平安银行"],
+                "compcode": ["company-1", "company-2"],
+            }
+        )
+        incoming = pd.DataFrame(
+            {
+                "stkcode": ["301697.SZ", "000001.SZ"],
+                "stkname": ["贝特利", "平安银行"],
+                "compcode": ["company-1", "company-2"],
+            }
+        )
+
+        with self.assertLogs(
+            "data_factory.ingestion.snapshots", level="WARNING"
+        ) as captured:
+            validate_snapshot(local, incoming, "stk_info.pkl")
+
+        self.assertIn("A25026.SZ -> 301697.SZ", "\n".join(captured.output))
+
+    def test_frame_rejects_ambiguous_stock_code_change(self) -> None:
+        local = pd.DataFrame(
+            {
+                "stkcode": ["OLD-1", "OLD-2"],
+                "compcode": ["company", "company"],
+            }
+        )
+        incoming = pd.DataFrame(
+            {"stkcode": ["NEW"], "compcode": ["company"]}
+        )
+
+        with self.assertRaisesRegex(UpdateError, "缺少 2 个"):
+            validate_snapshot(local, incoming, "stk_info.pkl")
+
     def test_stale_delivery_says_so_instead_of_blaming_the_vendor(self) -> None:
         """输入是本地的子集时，最常见的原因是这批交付已经应用过。"""
         local = pd.DataFrame({"stkcode": ["A", "B"], "name": ["a", "b"]})
