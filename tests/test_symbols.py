@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from data_factory.core.symbols import parse_symbol, unique_symbol_map
+from data_factory.core.conventions import parse_symbol, unique_symbol_map
 
 
 class SymbolTests(unittest.TestCase):

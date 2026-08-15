@@ -1,14 +1,28 @@
-"""The single rule for turning market symbols into numeric stock codes.
+"""The vocabulary every subsystem has to agree on: field names and symbols.
 
-``processing`` and ``quality`` consume the same upstream universe, so they must
-strip the market suffix identically; keeping two parsers around let the two
-subsystems disagree about which columns are stocks.
+``ingestion``, ``processing`` and ``quality`` consume the same upstream
+universe, so they must name fields and strip market suffixes identically;
+keeping two parsers around let the subsystems disagree about which columns are
+stocks.
 """
 
 from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+
+# ---------------------------------------------------------------------------
+# Field names
+# ---------------------------------------------------------------------------
+
+# Ordered tuples on purpose: several call sites concatenate per-field arrays and
+# compare the results positionally, so the order has to be reproducible.
+MINUTE_FIELDS = ("open", "high", "low", "close", "volume", "amount")
+PRICE_FIELDS = ("open", "high", "low", "close")
+
+# ---------------------------------------------------------------------------
+# Stock symbols
+# ---------------------------------------------------------------------------
 
 SYMBOL_RE = re.compile(r"^(\d{6})\.[A-Za-z]{2}$")
 

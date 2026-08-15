@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from data_factory.core.fields import PRICE_FIELDS
+from data_factory.core.conventions import PRICE_FIELDS
 from data_factory.core.layout import (
     DAILY_ADJUSTED_VWAP_FILE,
     DAILY_AMOUNT_FILE,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from data_factory.core.symbols import unique_symbol_map
+from data_factory.core.conventions import unique_symbol_map
 
 
 def _integer_dates(index: pd.Index) -> pd.Series | None:

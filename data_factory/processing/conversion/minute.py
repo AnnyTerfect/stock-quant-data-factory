@@ -14,7 +14,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from data_factory.core.fields import MINUTE_FIELDS, PRICE_FIELDS
+from data_factory.core.conventions import MINUTE_FIELDS, PRICE_FIELDS
 from data_factory.core.layout import (
     adjust_factor_file,
     minute_file_date,

@@ -5,8 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from data_factory.core.fields import PRICE_FIELDS
-from data_factory.core.symbols import unique_symbol_map
+from data_factory.core.conventions import PRICE_FIELDS, unique_symbol_map
 from data_factory.quality.checks.price_consistency.frames import DailyBundle
 
 VOLUME_SCALE = 10_000
