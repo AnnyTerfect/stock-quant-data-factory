@@ -30,6 +30,23 @@ class ConvertDataTests(unittest.TestCase):
         self.assertEqual(result.index.name, "datetime")
         self.assertEqual(result.index[0], pd.Timestamp("2026-01-02"))
 
+    def test_daily_matrix_sorts_both_axes(self) -> None:
+        frame = pd.DataFrame(
+            [[1.0, 2.0], [3.0, 4.0]],
+            index=pd.Index([20260105, 20260102]),
+            columns=["600000.SH", "000001.SZ"],
+        )
+        result, changed = normalize_daily_matrix(frame)
+        self.assertTrue(changed)
+        self.assertEqual(result.columns.tolist(), [1, 600000])
+        self.assertEqual(
+            result.index.tolist(),
+            [pd.Timestamp("2026-01-02"), pd.Timestamp("2026-01-05")],
+        )
+        # Sorting has to carry the values along, not just relabel the axes.
+        self.assertEqual(result.loc[pd.Timestamp("2026-01-02"), 1], 4.0)
+        self.assertEqual(result.loc[pd.Timestamp("2026-01-05"), 600000], 1.0)
+
     def test_daily_matrix_left_alone_without_symbol_columns(self) -> None:
         frame = pd.DataFrame([[1.0]], index=pd.Index([20260102]), columns=["value"])
         result, changed = normalize_daily_matrix(frame)
@@ -121,6 +138,26 @@ class ConvertDataTests(unittest.TestCase):
             )
             self.assertEqual(counts, RegularCounts())
             self.assertFalse((output_root / "market/bars/1m").exists())
+
+    def test_plain_table_gets_sorted_rows_and_declared_column_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            reference_root = input_root / "reference"
+            reference_root.mkdir(parents=True)
+            pd.DataFrame(
+                {"stkcode": ["b", "a"], "listdate": [20260105, 20260102]},
+                index=pd.Index([1, 0]),
+            ).to_pickle(reference_root / "stk_info.pkl")
+
+            output_root = root / "data-out"
+            convert_regular_pickles(
+                ConversionConfig(input_root=input_root, output_root=output_root)
+            )
+            table = pd.read_parquet(output_root / "reference/stk_info.parquet")
+            self.assertEqual(table.index.tolist(), [0, 1])
+            self.assertEqual(table["stkcode"].tolist(), ["a", "b"])
+            self.assertEqual(table.columns.tolist(), ["stkcode", "listdate"])
 
     def test_regular_conversion_accepts_every_pickle_suffix(self) -> None:
         """Conversion has to recognize exactly what ingestion is willing to index.

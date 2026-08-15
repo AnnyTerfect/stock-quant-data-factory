@@ -21,7 +21,11 @@ def normalize_daily_matrix(frame: pd.DataFrame) -> tuple[pd.DataFrame, bool]:
     """
     if not is_integer_date_axis(frame.index):
         return frame, False
-    symbols = unique_symbol_map(frame.columns)
+    # Upstream hands the symbols over in whatever order each file happens to
+    # carry, so both axes are put in ascending order here: readers can then
+    # slice a code or date range on any converted matrix, and two matrices
+    # line up column by column without either side reindexing first.
+    symbols = dict(sorted(unique_symbol_map(frame.columns).items()))
     if not symbols:
         return frame, False
 

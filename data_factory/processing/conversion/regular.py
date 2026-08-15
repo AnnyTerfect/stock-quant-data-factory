@@ -37,6 +37,12 @@ def write_parquet_object(source: Path, target: Path, overwrite: bool) -> ObjectK
         raise TypeError(f"不支持的 pickle 对象类型: {type(value).__name__}")
 
     value, normalized = normalize_daily_matrix(value)
+    if not normalized and not value.index.is_monotonic_increasing:
+        # A daily matrix comes back sorted on both axes. A plain table has only
+        # one axis worth ordering: its columns are field names, which mean what
+        # upstream's declaration order says they mean, not what sorting them
+        # alphabetically would.
+        value = value.sort_index()
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + ".tmp")
     try:
