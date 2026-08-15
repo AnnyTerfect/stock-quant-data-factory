@@ -15,6 +15,7 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 
+from data_factory.core.conventions import DATE_FORMAT
 from data_factory.core.layout import is_pickle
 from data_factory.ingestion.conventions import (
     MAX_ARCHIVE_MEMBER_BYTES,
@@ -106,7 +107,7 @@ def iter_daily_archives(
     dates = [date for _, date in dated]
     if len(set(dates)) != len(dates):
         duplicates = sorted(
-            {date.strftime("%Y%m%d") for date in dates if dates.count(date) > 1}
+            {date.strftime(DATE_FORMAT) for date in dates if dates.count(date) > 1}
         )
         raise UpdateError(f"外层压缩包含重复日包日期: {duplicates}")
     dated.sort(key=lambda item: item[1])
@@ -130,6 +131,6 @@ def _daily_archive_date(name: str) -> datetime:
     if match is None:
         raise UpdateError(f"外层压缩包含无法识别的日包: {name!r}")
     try:
-        return datetime.strptime(match.group(1), "%Y%m%d")
+        return datetime.strptime(match.group(1), DATE_FORMAT)
     except ValueError as error:
         raise UpdateError(f"日包日期不合法: {name!r}") from error

@@ -26,6 +26,14 @@ from pathlib import Path
 
 import pandas as pd
 
+from data_factory.core.conventions import (
+    DateAxisError,
+    ensure_sorted_dates,
+    ensure_unique_dates,
+    format_date,
+    format_dates,
+    to_datetime_index,
+)
 from data_factory.ingestion.conventions import (
     DATE_CONSISTENCY_DAYS,
     DATE_REFERENCE_FILE,
@@ -133,9 +141,9 @@ def _check_against_window(
     extra = inside.difference(window)
     if len(missing) or len(extra):
         return (
-            f"{name}: 区间 {_format(start)}~{_format(last)} 内"
-            f"缺失 {len(missing)} 个交易日（例 {_examples(missing)}）、"
-            f"多出 {len(extra)} 个非交易日（例 {_examples(extra)}）"
+            f"{name}: 区间 {format_date(start)}~{format_date(last)} 内"
+            f"缺失 {len(missing)} 个交易日（例 {format_dates(missing)}）、"
+            f"多出 {len(extra)} 个非交易日（例 {format_dates(extra)}）"
         )
 
     # Getting here means the covered part matches the calendar exactly, so the
@@ -143,7 +151,8 @@ def _check_against_window(
     lag = len(window[window > last])
     if lag > MAX_DATE_LAG_DAYS:
         return (
-            f"{name}: 末日期 {_format(last)} 比日历末日期 {_format(window[-1])} "
+            f"{name}: 末日期 {format_date(last)} "
+            f"比日历末日期 {format_date(window[-1])} "
             f"落后 {lag} 个交易日，超过允许的 {MAX_DATE_LAG_DAYS} 个"
         )
     if lag:
@@ -151,41 +160,23 @@ def _check_against_window(
             "%s: 末日期 %s 比日历末日期 %s 落后 %d 个交易日，"
             "已覆盖的区间与日历一致，请确认是否符合该文件的发布节奏",
             name,
-            _format(last),
-            _format(window[-1]),
+            format_date(last),
+            format_date(window[-1]),
             lag,
         )
     return None
 
 
-def _format(date: pd.Timestamp) -> str:
-    return date.strftime("%Y%m%d")
-
-
-def _examples(dates: pd.DatetimeIndex, limit: int = 5) -> list[str]:
-    return dates[:limit].strftime("%Y%m%d").tolist()
-
-
 def _normalize_dates(values: object, label: str) -> pd.DatetimeIndex:
-    """Normalize a date axis to a DatetimeIndex, checking order and uniqueness.
+    """Parse a date axis, requiring it to be unique and ascending.
 
-    Nearly every file stores 8-digit integers such as ``20260803``; an axis that
-    already holds datetimes is taken as is, so that stringifying it first does
-    not turn ``2026-08-03`` into an invalid ``%Y%m%d`` value.
+    A malformed axis aborts the whole update here, so every ``DateAxisError``
+    becomes an :class:`UpdateError` naming the file it came from.
     """
-    raw = pd.Index(values)
-    if isinstance(raw, pd.DatetimeIndex):
-        dates = raw
-    else:
-        dates = pd.to_datetime(raw.astype(str), format="%Y%m%d", errors="coerce")
-        invalid = raw[pd.isna(dates)]
-        if len(invalid):
-            raise UpdateError(
-                f"{label}: 日期轴含非 YYYYMMDD 值，例如 {invalid[:5].tolist()}"
-            )
-    if dates.has_duplicates:
-        duplicates = dates[dates.duplicated()].unique()[:5].strftime("%Y%m%d").tolist()
-        raise UpdateError(f"{label}: 日期轴有重复值，例如 {duplicates}")
-    if not dates.is_monotonic_increasing:
-        raise UpdateError(f"{label}: 日期轴未按升序排列")
+    try:
+        dates = to_datetime_index(values)
+        ensure_unique_dates(dates)
+        ensure_sorted_dates(dates)
+    except DateAxisError as error:
+        raise UpdateError(f"{label}: {error}") from error
     return dates

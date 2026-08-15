@@ -14,7 +14,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from data_factory.core.conventions import MINUTE_FIELDS, PRICE_FIELDS
+from data_factory.core.conventions import (
+    MINUTE_FIELDS,
+    MINUTE_FORMAT,
+    PRICE_FIELDS,
+    to_integer_dates,
+)
 from data_factory.core.layout import (
     adjust_factor_file,
     minute_file_date,
@@ -106,7 +111,7 @@ def load_adjustment_factors(input_root: Path) -> pd.DataFrame:
     normalized, was_daily = normalize_daily_matrix(raw)
     if not was_daily:
         raise ValueError(f"{source} 不是日期 × 股票代码的宽表")
-    normalized.index = normalized.index.strftime("%Y%m%d").astype("int64")
+    normalized.index = to_integer_dates(normalized.index)
     normalized.index.name = "date"
     return normalized
 
@@ -116,7 +121,7 @@ def minute_datetime(date: pd.Series, time: pd.Series) -> pd.DatetimeIndex:
     text = date.astype("int64").astype(str) + time.astype("int64").astype(
         str
     ).str.zfill(4)
-    result = pd.to_datetime(text, format="%Y%m%d%H%M", errors="raise") + pd.Timedelta(
+    result = pd.to_datetime(text, format=MINUTE_FORMAT, errors="raise") + pd.Timedelta(
         minutes=1
     )
     return pd.DatetimeIndex(result, name="datetime")
