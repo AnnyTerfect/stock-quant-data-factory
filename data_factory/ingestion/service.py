@@ -31,11 +31,12 @@ from data_factory.ingestion.date_consistency import validate_recent_dates
 from data_factory.ingestion.models import (
     BARRA_ARCHIVE_NAME,
     FACTOR_ARCHIVE_NAME,
+    MINUTE_ARCHIVE_NAME,
     UpdateConfig,
     UpdateError,
     UpdateStats,
 )
-from data_factory.ingestion.sources import barra, factor_database
+from data_factory.ingestion.sources import barra, factor_database, minute_bars
 from data_factory.ingestion.storage import StagingArea, build_catalog
 
 LOG = logging.getLogger(__name__)
@@ -76,10 +77,11 @@ def update_dataset(
     written_files = 0
     try:
         # Minute bars are left out of the index on purpose: they are one
-        # long-format file per trading day, carry no date axis to merge on, and
-        # arrive in a separate archive this flow does not process. Indexing them
-        # would make the date-consistency pass read thousands of large files and
-        # report every one of them.
+        # long-format file per trading day, so they are matched by the date in
+        # their name rather than by a catalog of existing names. Indexing them
+        # would also make the date-consistency pass read thousands of large
+        # files and report every one of them; ``minute_bars`` checks their
+        # trading days from the file names instead.
         minute_root = config.data_root / minute_relative_dir(config.data_root)
         catalog = build_catalog(config.data_root, skip=[minute_root])
 
@@ -120,6 +122,21 @@ def update_dataset(
                     catalog=factor_catalog,
                     staging=staging,
                     tolerance=config.tolerance,
+                    stats=stats,
+                ),
+            )
+
+            # After the factor increments, so that the day sequence is checked
+            # against the calendar this delivery brings rather than the old one.
+            _run_source(
+                "分钟行情",
+                staging,
+                stats,
+                lambda: minute_bars.update(
+                    archive_path=config.delivery_dir / MINUTE_ARCHIVE_NAME,
+                    minute_dir=minute_root,
+                    catalog=catalog,
+                    staging=staging,
                     stats=stats,
                 ),
             )
@@ -240,12 +257,15 @@ def log_summary(
         suffix = ""
     LOG.info(
         "汇总: Barra 覆盖 %d 个（其中历史告警 %d 个）, 日增量包 %d 个, "
-        "因子合并 %d 次, 参考快照替换 %d 次, 无匹配跳过 %d 个, 实际写入 %d 个文件%s",
+        "因子合并 %d 次, 参考快照替换 %d 次, 分钟行情新增 %d 个交易日"
+        "（已有且一致 %d 个）, 无匹配跳过 %d 个, 实际写入 %d 个文件%s",
         stats.barra_replaced,
         stats.barra_history_warnings,
         stats.daily_archives,
         stats.factors_merged,
         stats.snapshots_replaced,
+        stats.minute_days_added,
+        stats.minute_days_verified,
         len(stats.unmatched_names),
         written_files,
         suffix,

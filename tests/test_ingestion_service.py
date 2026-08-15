@@ -25,6 +25,23 @@ def _pickle_bytes(value: object) -> bytes:
     return stream.getvalue()
 
 
+def _minute_day(date: int) -> pd.DataFrame:
+    """一天的分钟长表，字段与上游交付一致。"""
+    return pd.DataFrame(
+        {
+            "code": [1],
+            "date": [date],
+            "time": [930],
+            "open": [1.0],
+            "high": [1.5],
+            "low": [0.5],
+            "close": [1.2],
+            "volume": [100],
+            "amount": [1000.0],
+        }
+    )
+
+
 class UpdateServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self._temporary = tempfile.TemporaryDirectory()
@@ -33,6 +50,8 @@ class UpdateServiceTests(unittest.TestCase):
         self.delivery = root / "delivery"
         self.barra_dir = self.data / "barra"
         self.barra_dir.mkdir(parents=True)
+        self.minute_dir = self.data / "market/bars/1m"
+        self.minute_dir.mkdir(parents=True)
         self.delivery.mkdir()
 
         dates = pd.date_range("2022-01-01", periods=1000, freq="D")
@@ -43,6 +62,15 @@ class UpdateServiceTests(unittest.TestCase):
         pd.to_pickle(date_values, self.data / "trd_cal.pkl")
         pd.to_pickle(self.local, self.data / "factor.pkl")
         pd.to_pickle(self.local, self.barra_dir / "risk.pkl")
+
+        # The dataset stops one trading day short of the calendar; the delivery
+        # brings that day, which is the ordinary rhythm of the minute bars.
+        self.minute_days = [int(value) for value in date_values.tail(2)]
+        pd.to_pickle(
+            _minute_day(self.minute_days[0]),
+            self.minute_dir / f"kline_day_{self.minute_days[0]}.pkl",
+        )
+        self._write_minute([self.minute_days[1]])
 
     def tearDown(self) -> None:
         self._temporary.cleanup()
@@ -60,6 +88,13 @@ class UpdateServiceTests(unittest.TestCase):
             outer.writestr(
                 "factorDatabase_incre_pkl_20260801.zip", inner_payload.getvalue()
             )
+
+    def _write_minute(self, dates: list[int]) -> None:
+        with zipfile.ZipFile(self.delivery / "Kline_incre.zip", "w") as archive:
+            for date in dates:
+                archive.writestr(
+                    f"kline_day_{date}.pkl", _pickle_bytes(_minute_day(date))
+                )
 
     def _config(
         self,
@@ -134,20 +169,38 @@ class UpdateServiceTests(unittest.TestCase):
             pd.read_pickle(self.barra_dir / "risk.pkl"), self.local
         )
 
-    def test_minute_bars_take_no_part_in_the_update(self) -> None:
-        """分钟行情是长表、按日一个文件，既不能按日期合并，也不由本模块交付。"""
-        minute_dir = self.data / "market/bars/1m"
-        minute_dir.mkdir(parents=True)
-        long_format = pd.DataFrame(
-            {"code": ["000001.SZ"], "date": [20260801], "close": [1.0]}
-        )
-        pd.to_pickle(long_format, minute_dir / "kline_day_20260801.pkl")
+    def test_minute_days_are_added_as_whole_files(self) -> None:
+        """分钟行情按天整文件落地，不参与按文件名匹配的合并。"""
         self._write_barra(self.local)
         self._write_increment(self.local)
 
-        stats = update_dataset(self._config(dry_run=True))
+        stats = update_dataset(self._config(), confirm=lambda _: "y")
 
         self.assertEqual(stats.error_count, 0)
+        self.assertEqual(stats.minute_days_added, 1)
+        added = self.minute_dir / f"kline_day_{self.minute_days[1]}.pkl"
+        pd.testing.assert_frame_equal(
+            pd.read_pickle(added), _minute_day(self.minute_days[1])
+        )
+
+    def test_a_bad_minute_day_blocks_the_commit(self) -> None:
+        """分钟行情和其他数据源一样进同一道错误闸门：有 ERROR 就一个文件都不写。"""
+        self._write_barra(self.local)
+        self._write_increment(self.local)
+        mismatched = _minute_day(self.minute_days[1])
+        mismatched["date"] = self.minute_days[0]
+        with zipfile.ZipFile(self.delivery / "Kline_incre.zip", "w") as archive:
+            archive.writestr(
+                f"kline_day_{self.minute_days[1]}.pkl", _pickle_bytes(mismatched)
+            )
+
+        stats = update_dataset(self._config(), confirm=lambda _: "y")
+
+        self.assertGreater(stats.error_count, 0)
+        self.assertEqual(stats.minute_days_added, 0)
+        self.assertFalse(
+            (self.minute_dir / f"kline_day_{self.minute_days[1]}.pkl").exists()
+        )
 
     def test_requires_explicit_pickle_trust(self) -> None:
         with self.assertRaisesRegex(UpdateError, "来源可信"):

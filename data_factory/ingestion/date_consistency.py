@@ -13,6 +13,11 @@ because they are not equally serious:
   rhythm: a ``WARNING`` naming the lag, escalating to ``ERROR`` only beyond
   :data:`MAX_DATE_LAG_DAYS`.
 
+The same three rules describe the minute bars, whose trading days are file names
+in one directory rather than an index on one file, so
+:mod:`data_factory.ingestion.sources.minute_bars` builds its own day sequence and
+hands it to :func:`check_against_window` instead of being indexed here.
+
 An earlier version conflated the three by taking the last N dates of each axis
 and comparing them pairwise. One day of lag shifted the two windows apart, so old
 dates outside the window were reported as "missing" and "extra" — pointing at
@@ -52,7 +57,7 @@ def validate_recent_dates(catalog: dict[str, Path], staging: StagingArea) -> Non
     Files updated in this run are read from the staging area and the rest from
     the dataset, so what the check sees is exactly the dataset a commit produces.
     """
-    window = _reference_window(catalog, staging)
+    window = reference_window(catalog, staging)
 
     checked = 0
     problems: list[str] = []
@@ -66,7 +71,7 @@ def validate_recent_dates(catalog: dict[str, Path], staging: StagingArea) -> Non
             continue
 
         try:
-            dates = _normalize_dates(value.index, name)
+            dates = normalize_dates(value.index, name)
         except UpdateError as error:
             problems.append(str(error))
             continue
@@ -75,7 +80,7 @@ def validate_recent_dates(catalog: dict[str, Path], staging: StagingArea) -> Non
             continue
 
         checked += 1
-        problem = _check_against_window(dates, window, name)
+        problem = check_against_window(dates, window, name)
         if problem:
             problems.append(problem)
 
@@ -94,7 +99,7 @@ def validate_recent_dates(catalog: dict[str, Path], staging: StagingArea) -> Non
     )
 
 
-def _reference_window(
+def reference_window(
     catalog: dict[str, Path], staging: StagingArea
 ) -> pd.DatetimeIndex:
     """The most recent N trading days of the updated calendar, as the baseline."""
@@ -107,7 +112,7 @@ def _reference_window(
         raise UpdateError(
             f"{DATE_REFERENCE_FILE}: 期望 Series，实际是 {type(reference).__name__}"
         )
-    reference_dates = _normalize_dates(reference.tolist(), DATE_REFERENCE_FILE)
+    reference_dates = normalize_dates(reference.tolist(), DATE_REFERENCE_FILE)
     if len(reference_dates) < DATE_CONSISTENCY_DAYS:
         raise UpdateError(
             f"{DATE_REFERENCE_FILE}: 仅 {len(reference_dates)} 个日期，"
@@ -116,7 +121,7 @@ def _reference_window(
     return reference_dates[-DATE_CONSISTENCY_DAYS:]
 
 
-def _check_against_window(
+def check_against_window(
     dates: pd.DatetimeIndex, window: pd.DatetimeIndex, name: str
 ) -> str | None:
     """Check one file's date axis; a pure tail lag only warns and returns None.
@@ -166,7 +171,7 @@ def _check_against_window(
     return None
 
 
-def _normalize_dates(values: object, label: str) -> pd.DatetimeIndex:
+def normalize_dates(values: object, label: str) -> pd.DatetimeIndex:
     """Parse a date axis, requiring it to be unique and ascending.
 
     A malformed axis aborts the whole update here, so every ``DateAxisError``

@@ -47,6 +47,9 @@ BARRA_ARCHIVE_NAME = "barra.zip"
 #: Factor database increments: one inner zip per day, merged in date order.
 FACTOR_ARCHIVE_NAME = "factorDatabase_incre_pkl.zip"
 
+#: Minute bars: one long-format pickle per trading day, added day by day.
+MINUTE_ARCHIVE_NAME = "Kline_incre.zip"
+
 # ---------------------------------------------------------------------------
 # Local dataset conventions
 # ---------------------------------------------------------------------------
@@ -162,6 +165,7 @@ _SOURCE_COUNTERS = (
     "barra_history_warnings",
     "factors_merged",
     "snapshots_replaced",
+    "minute_days_added",
 )
 
 
@@ -190,6 +194,12 @@ class UpdateStats:
 
     daily_archives: int = 0
     """Daily increment archives processed."""
+
+    minute_days_added: int = 0
+    """Minute-bar trading days staged as new files."""
+
+    minute_days_verified: int = 0
+    """Delivered minute days the dataset already held, kept after comparing."""
 
     unmatched_names: set[str] = field(default_factory=set)
     """Delivered names with no same-named target in the dataset, hence skipped."""
