@@ -17,7 +17,11 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--input", type=Path, default=FULL_ROOT, help="源数据根目录")
     parser.add_argument("--output", type=Path, default=OUTPUT_ROOT, help="输出根目录")
     parser.add_argument("--part", choices=("all", "regular", "minute"), default="all")
-    parser.add_argument("--overwrite", action="store_true", help="覆盖已有输出文件")
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="忽略哈希记录，强制重新转换全部文件",
+    )
     parser.add_argument("--copy-other", action="store_true", help="复制非 pickle 文件")
     parser.add_argument(
         "--workers",

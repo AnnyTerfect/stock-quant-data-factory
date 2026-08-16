@@ -26,6 +26,7 @@ from data_factory.core.layout import (
     minute_files,
     minute_relative_dir,
 )
+from data_factory.processing.conversion.manifest import ConversionManifest, group_digest
 from data_factory.processing.conversion.models import ConversionConfig
 from data_factory.processing.conversion.normalization import normalize_daily_matrix
 
@@ -178,7 +179,14 @@ def prepare_minute_day(
 
 
 def convert_minute_bars(config: ConversionConfig) -> int:
-    """Stream daily long minute bars into six complete wide parquet files."""
+    """Stream daily long minute bars into six complete wide parquet files.
+
+    The six outputs are one indivisible product of every daily pickle, so the
+    whole set of sources is hashed together and rebuilt whenever that hash
+    moves: a corrected or newly delivered day cannot be appended to a finished
+    parquet file, and leaving the old outputs in place because they exist would
+    mean the dataset never sees the day at all.
+    """
     minute_relative = minute_relative_dir(config.input_root)
     sources = minute_files(config.input_root / minute_relative)
     if not sources:
@@ -187,16 +195,25 @@ def convert_minute_bars(config: ConversionConfig) -> int:
 
     target_root = config.output_root / minute_relative
     targets = {field: target_root / f"{field}.parquet" for field in MINUTE_FIELDS}
-    existing = [path for path in targets.values() if path.exists()]
+    manifest = ConversionManifest.load(config.output_root, config.dry_run)
+    key = minute_relative.as_posix()
+    digest = group_digest(sources)
+    current = not config.overwrite and manifest.is_current(
+        key, digest, targets.values()
+    )
     if config.dry_run:
         LOG.info("[dry-run] 分钟源文件: %d 个交易日", len(sources))
+        if current:
+            LOG.info("[dry-run] 分钟源文件未变化，实际执行会跳过")
+            return 0
         for field, target in targets.items():
             LOG.info("[dry-run] %s -> %s", field, target)
-        if existing and not config.overwrite:
-            LOG.warning("[dry-run] 实际执行会因目标已存在而停止: %s", existing[0])
         return len(sources)
-    if existing and not config.overwrite:
-        raise FileExistsError(f"分钟输出已存在（使用 --overwrite 覆盖）: {existing[0]}")
+    if current:
+        LOG.info("1m bars: 源文件未变化（%d 个交易日），跳过", len(sources))
+        return 0
+    if any(path.exists() for path in targets.values()):
+        LOG.info("1m bars: 源文件已变化，重新生成全部宽表")
     factors = load_adjustment_factors(config.input_root)
     stock_codes = pd.Index(factors.columns, dtype="int64", name="stock_code")
     if config.workers is not None and config.workers < 1:
@@ -234,4 +251,7 @@ def convert_minute_bars(config: ConversionConfig) -> int:
 
     for field in MINUTE_FIELDS:
         os.replace(temporaries[field], targets[field])
+    # Recorded only once all six files are in place: a half-written set has to
+    # look unconverted, or the missing fields would be skipped forever.
+    manifest.record(key, digest)
     return len(sources)

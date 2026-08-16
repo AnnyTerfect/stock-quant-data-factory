@@ -122,6 +122,63 @@ class ConvertDataTests(unittest.TestCase):
             self.assertEqual(opened.loc["2026-01-05 10:00", 1], 25.0)
             self.assertEqual(volume.loc["2026-01-02 10:00", 1], 100.0)
 
+    def test_minute_conversion_rebuilds_only_when_sources_change(self) -> None:
+        """Six wide files are one product: any day moving rebuilds all of them."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            minute_root = input_root / "full/market/bars/1m"
+            factor_root = input_root / "full/market/adjustment"
+            minute_root.mkdir(parents=True)
+            factor_root.mkdir(parents=True)
+            pd.DataFrame(
+                [[1.0], [1.0]],
+                index=[20260102, 20260105],
+                columns=["000001.SZ"],
+            ).to_pickle(factor_root / "adjfactor.pkl")
+
+            def write_day(date: int, close: float) -> None:
+                pd.DataFrame(
+                    {
+                        "code": [1],
+                        "date": [date],
+                        "time": [959],
+                        "open": [10.0],
+                        "high": [10.5],
+                        "low": [9.5],
+                        "close": [close],
+                        "volume": [100],
+                        "amount": [1000.0],
+                    }
+                ).to_pickle(minute_root / f"kline_day_{date}.pkl")
+
+            write_day(20260102, 10.2)
+            output_root = root / "data-out"
+            config = ConversionConfig(input_root=input_root, output_root=output_root)
+            bar_root = output_root / "full/market/bars/1m"
+
+            self.assertEqual(convert_minute_bars(config), 1)
+            self.assertEqual(convert_minute_bars(config), 0)
+
+            # A corrected day: same file name, different bytes.
+            write_day(20260102, 11.2)
+            self.assertEqual(convert_minute_bars(config), 1)
+            closed = pd.read_parquet(bar_root / "close.parquet")
+            self.assertEqual(closed.loc["2026-01-02 10:00", 1], 11.2)
+
+            # A new day cannot be appended to a finished parquet file, so the
+            # whole set is written again.
+            write_day(20260105, 12.2)
+            self.assertEqual(convert_minute_bars(config), 2)
+            closed = pd.read_parquet(bar_root / "close.parquet")
+            self.assertEqual(len(closed.index), 2)
+            self.assertEqual(convert_minute_bars(config), 0)
+
+            # An output that went missing is produced again even though the
+            # sources are untouched.
+            (bar_root / "volume.parquet").unlink()
+            self.assertEqual(convert_minute_bars(config), 2)
+
     def test_regular_conversion_skips_current_layout_minute_bars(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -158,6 +215,56 @@ class ConvertDataTests(unittest.TestCase):
             self.assertEqual(table.index.tolist(), [0, 1])
             self.assertEqual(table["stkcode"].tolist(), ["a", "b"])
             self.assertEqual(table.columns.tolist(), ["stkcode", "listdate"])
+
+    def test_regular_conversion_skips_only_unchanged_sources(self) -> None:
+        """The hash decides, not the target's existence.
+
+        Upstream re-delivers corrected files under the same names, so a second
+        run has to convert exactly the sources whose bytes moved.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            input_root.mkdir(parents=True)
+            source = input_root / "table.pkl"
+            pd.DataFrame({"value": [1]}).to_pickle(source)
+            config = ConversionConfig(input_root=input_root, output_root=root / "out")
+
+            self.assertEqual(convert_regular_pickles(config), RegularCounts(table=1))
+            self.assertEqual(convert_regular_pickles(config), RegularCounts(skipped=1))
+
+            pd.DataFrame({"value": [2]}).to_pickle(source)
+            self.assertEqual(convert_regular_pickles(config), RegularCounts(table=1))
+            table = pd.read_parquet(root / "out/table.parquet")
+            self.assertEqual(table["value"].tolist(), [2])
+
+    def test_regular_conversion_redoes_output_it_has_no_hash_for(self) -> None:
+        """An output of unknown provenance is converted again, not trusted."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            output_root = root / "out"
+            input_root.mkdir(parents=True)
+            output_root.mkdir(parents=True)
+            pd.DataFrame({"value": [1]}).to_pickle(input_root / "table.pkl")
+            (output_root / "table.parquet").write_bytes(b"stale")
+
+            config = ConversionConfig(input_root=input_root, output_root=output_root)
+            self.assertEqual(convert_regular_pickles(config), RegularCounts(table=1))
+            table = pd.read_parquet(output_root / "table.parquet")
+            self.assertEqual(table["value"].tolist(), [1])
+
+    def test_regular_conversion_redoes_a_deleted_target(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            input_root = root / "data"
+            input_root.mkdir(parents=True)
+            pd.DataFrame({"value": [1]}).to_pickle(input_root / "table.pkl")
+            config = ConversionConfig(input_root=input_root, output_root=root / "out")
+
+            convert_regular_pickles(config)
+            (root / "out/table.parquet").unlink()
+            self.assertEqual(convert_regular_pickles(config), RegularCounts(table=1))
 
     def test_regular_conversion_accepts_every_pickle_suffix(self) -> None:
         """Conversion has to recognize exactly what ingestion is willing to index.

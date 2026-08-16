@@ -125,13 +125,19 @@ uv run data-factory convert
 ```bash
 uv run data-factory convert --part regular
 uv run data-factory convert --dry-run
-uv run data-factory convert --part minute --overwrite
-uv run data-factory convert --part minute --workers 8 --overwrite
+uv run data-factory convert --part minute
+uv run data-factory convert --part minute --workers 8
 ```
 
-默认只处理 pickle。增加 `--copy-other` 可复制其他文件；已有普通输出默认跳过，
-分钟宽表已有任一目标文件时会停止，使用 `--overwrite` 覆盖。
-`--dry-run` 只扫描并显示计划处理的文件，不读取 pickle，也不创建数据输出。
+默认只处理 pickle。增加 `--copy-other` 可复制其他文件。
+
+是否跳过按**源文件内容的哈希**判断，而不是看输出是否存在：每次转换都会把源文件的
+SHA-256 记到输出根目录的 `.conversion-manifest.json`，下次只重转哈希变了的源文件。
+上游用同名文件重发修正数据时会被重新转换；输出被删掉或来历不明（清单里没有记录）
+时也会重新转换。分钟宽表由全部交易日一起生成，任何一天新增或改动都会重建六个文件。
+`--overwrite` 忽略清单，强制重转全部文件；删掉清单文件的效果相同。
+`--dry-run` 只扫描并显示计划处理的文件（为了给出准确的计划会读取源文件字节算哈希，
+但不会反序列化 pickle），也不创建数据输出。
 分钟数据按交易日多进程转换，默认使用 CPU 数量的一半（至少 1 个进程）；可用 `--workers`
 根据机器的 CPU 和内存调整，设为 `1` 可关闭并行。
 

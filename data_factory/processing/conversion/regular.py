@@ -15,6 +15,7 @@ from data_factory.core.layout import (
     minute_relative_dir,
     target_relative_path,
 )
+from data_factory.processing.conversion.manifest import ConversionManifest, file_digest
 from data_factory.processing.conversion.models import (
     ConversionConfig,
     CopyCounts,
@@ -26,10 +27,8 @@ from data_factory.processing.conversion.normalization import normalize_daily_mat
 LOG = logging.getLogger(__name__)
 
 
-def write_parquet_object(source: Path, target: Path, overwrite: bool) -> ObjectKind:
+def write_parquet_object(source: Path, target: Path) -> ObjectKind:
     """Convert one supported pickle object using an atomic target replacement."""
-    if target.exists() and not overwrite:
-        return ObjectKind.SKIPPED
     value = pd.read_pickle(source)
     if isinstance(value, pd.Series):
         value = value.to_frame(name=value.name if value.name is not None else "value")
@@ -54,7 +53,13 @@ def write_parquet_object(source: Path, target: Path, overwrite: bool) -> ObjectK
 
 
 def convert_regular_pickles(config: ConversionConfig) -> RegularCounts:
-    """Convert all pickle files except the specially handled minute bars."""
+    """Convert all pickle files except the specially handled minute bars.
+
+    A source is skipped when its bytes hash to what the previous conversion
+    recorded, not when its target happens to exist: upstream re-delivers
+    corrected files under the same names, and those have to be converted again.
+    """
+    manifest = ConversionManifest.load(config.output_root, config.dry_run)
     kinds: Counter[ObjectKind] = Counter()
     planned = 0
     minute_root = config.input_root / minute_relative_dir(config.input_root)
@@ -65,23 +70,35 @@ def convert_regular_pickles(config: ConversionConfig) -> RegularCounts:
             continue
         relative = source.relative_to(config.input_root)
         target = config.output_root / target_relative_path(relative)
-        skipped = target.exists() and not config.overwrite
+        key = relative.as_posix()
+        digest = file_digest(source)
+        skipped = not config.overwrite and manifest.is_current(key, digest, (target,))
         if config.dry_run:
             if skipped:
                 kinds[ObjectKind.SKIPPED] += 1
-                LOG.info("[dry-run] 跳过已有文件: %s", target)
+                LOG.info("[dry-run] 源文件未变化，跳过: %s", source)
             else:
                 planned += 1
                 LOG.info("[dry-run] %s -> %s", source, target)
             continue
-        kind = write_parquet_object(source, target, config.overwrite)
+        if skipped:
+            kinds[ObjectKind.SKIPPED] += 1
+            LOG.info("源文件未变化，跳过: %s", source)
+            continue
+        kind = write_parquet_object(source, target)
+        manifest.record(key, digest)
         kinds[kind] += 1
         LOG.info("%s -> %s (%s)", source, target, kind)
     return RegularCounts.from_kinds(kinds, planned)
 
 
 def copy_other_files(config: ConversionConfig) -> CopyCounts:
-    """Mirror non-pickle files, excluding the minute-bar source directory."""
+    """Mirror non-pickle files, excluding the minute-bar source directory.
+
+    Copies follow the same rule as conversions: the hash decides, so a mirrored
+    file that upstream has since replaced is copied again.
+    """
+    manifest = ConversionManifest.load(config.output_root, config.dry_run)
     copied = 0
     skipped = 0
     minute_root = config.input_root / minute_relative_dir(config.input_root)
@@ -92,14 +109,17 @@ def copy_other_files(config: ConversionConfig) -> CopyCounts:
             continue
         relative = source.relative_to(config.input_root)
         target = config.output_root / target_relative_path(relative)
-        if target.exists() and not config.overwrite:
+        key = relative.as_posix()
+        digest = file_digest(source)
+        if not config.overwrite and manifest.is_current(key, digest, (target,)):
             skipped += 1
-            LOG.info("跳过已有文件: %s", target)
+            LOG.info("源文件未变化，跳过: %s", source)
             continue
         if config.dry_run:
             LOG.info("[dry-run] 复制 %s -> %s", source, target)
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, target)
+            manifest.record(key, digest)
         copied += 1
     return CopyCounts(copied, skipped)
