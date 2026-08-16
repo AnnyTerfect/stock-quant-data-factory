@@ -57,7 +57,9 @@ class UpdateServiceTests(unittest.TestCase):
         dates = pd.date_range("2022-01-01", periods=1000, freq="D")
         date_values = pd.Series(dates.strftime("%Y%m%d").astype(int))
         self.local = pd.DataFrame(
-            1.0, index=pd.Index(date_values.tolist()), columns=["A"]
+            1.0,
+            index=pd.Index(date_values.tolist()),
+            columns=pd.Index(["A"], dtype=object),
         )
         pd.to_pickle(date_values, self.data / "trd_cal.pkl")
         pd.to_pickle(self.local, self.data / "factor.pkl")

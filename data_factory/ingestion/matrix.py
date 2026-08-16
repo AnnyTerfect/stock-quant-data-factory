@@ -480,7 +480,16 @@ def _ordered_union(base: pd.Index, extra: pd.Index) -> pd.Index:
     entries: column order is an implicit contract for anything downstream that
     reads by position, and one update should not shuffle it.
     """
-    return base.append(extra[~extra.isin(base)])
+    combined = base.append(extra[~extra.isin(base)])
+    if isinstance(combined.dtype, pd.StringDtype):
+        # pandas 3 infers its new string dtype again inside Index.append(), even
+        # when both inputs are legacy object indexes.  With pyarrow installed,
+        # that dtype is Arrow-backed and pickling the otherwise-numpy matrix then
+        # makes pyarrow mandatory merely to unpickle its column labels.  Axes in
+        # the source dataset have always been plain Python objects, so keep that
+        # portable representation across an ingestion merge.
+        combined = combined.astype(object)
+    return combined
 
 
 def _sorted_by_date(frame: pd.DataFrame) -> pd.DataFrame:

@@ -72,6 +72,24 @@ class HasDateAxisTests(unittest.TestCase):
 
 
 class MergeTests(unittest.TestCase):
+    def test_keeps_string_column_axis_as_portable_objects(self) -> None:
+        """合并后的 pickle 不应只为股票代码列标签依赖可选的 pyarrow。"""
+        local = pd.DataFrame(
+            [[1.0]],
+            index=pd.Index([20260801]),
+            columns=pd.Index(["A"], dtype=object),
+        )
+        incoming = pd.DataFrame(
+            [[2.0]],
+            index=pd.Index([20260802]),
+            columns=pd.Index(["A"], dtype=object),
+        )
+
+        merged = merge(local, incoming, "f.pkl")
+
+        self.assertEqual(merged.columns.dtype, object)
+        self.assertIsInstance(merged.columns._values, np.ndarray)
+
     def test_keeps_local_only_stocks_on_new_dates(self) -> None:
         local = _frame([[1.0, 2.0]], [20260801], ["A", "B"])
         incoming = _frame([[3.0]], [20260802], ["A"])
@@ -158,7 +176,9 @@ class MergeTests(unittest.TestCase):
 
         fast = merge(local, incoming, "f.pkl")
 
-        reference = local.reindex(index=[*dates, 20260804], columns=list("ABCD"))
+        reference = local.reindex(
+            index=[*dates, 20260804], columns=pd.Index(list("ABCD"), dtype=object)
+        )
         reference.loc[incoming.index, incoming.columns] = incoming.to_numpy()
         pd.testing.assert_frame_equal(fast, reference, check_names=False)
 
